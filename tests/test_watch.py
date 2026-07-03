@@ -92,17 +92,19 @@ def test_run_once_writes_csv_markdown_and_json(tmp_path, capsys, monkeypatch) ->
     monkeypatch.setattr(
         watch,
         "fetch_stocks",
-        lambda codes: pd.DataFrame([source_row("300857", "协创数据", 295.2)]),
+        lambda codes, **kwargs: pd.DataFrame([source_row("300857", "协创数据", 295.2)]),
     )
     monkeypatch.setattr(
         watch,
         "fetch_indices",
-        lambda codes, symbol: pd.DataFrame([source_row("399006", "创业板指", 2310.2)]),
+        lambda codes, symbol, **kwargs: pd.DataFrame(
+            [source_row("399006", "创业板指", 2310.2)]
+        ),
     )
     monkeypatch.setattr(
         watch,
         "fetch_etfs",
-        lambda codes: pd.DataFrame(
+        lambda codes, **kwargs: pd.DataFrame(
             [etf_source_row("159915", "创业板ETF易方达", 4.037)]
         ),
     )
@@ -158,14 +160,14 @@ def test_collect_records_keeps_index_records_when_stock_fetch_fails(
 ) -> None:
     sample_config_dict["targets"]["etfs"] = []
 
-    def failing_stock_fetch(codes):
+    def failing_stock_fetch(codes, **kwargs):
         raise RuntimeError("stock source offline")
 
     monkeypatch.setattr(watch, "fetch_stocks", failing_stock_fetch)
     monkeypatch.setattr(
         watch,
         "fetch_indices",
-        lambda codes, symbol: pd.DataFrame(
+        lambda codes, symbol, **kwargs: pd.DataFrame(
             [
                 source_row("399006", "创业板指", 2310.2),
                 source_row("399001", "深证成指", 11000.1),
@@ -187,7 +189,7 @@ def test_collect_records_retries_stock_fetch_once(sample_config_dict, monkeypatc
     sample_config_dict["targets"]["etfs"] = []
     calls = {"stock": 0}
 
-    def flaky_stock_fetch(codes):
+    def flaky_stock_fetch(codes, **kwargs):
         calls["stock"] += 1
         if calls["stock"] == 1:
             raise RuntimeError("transient source failure")
@@ -220,7 +222,7 @@ def test_collect_records_emits_slow_fetch_warning(
     monkeypatch.setattr(
         watch,
         "fetch_stocks",
-        lambda codes: pd.DataFrame(
+        lambda codes, **kwargs: pd.DataFrame(
             [
                 source_row("300857", "协创数据", 295.2),
                 source_row("300475", "香农芯创", 42.7),
@@ -242,7 +244,7 @@ def test_collect_records_reports_source_data_error_as_field_missing(
     sample_config_dict["targets"]["indices"] = []
     sample_config_dict["targets"]["etfs"] = []
 
-    def missing_field_fetch(codes):
+    def missing_field_fetch(codes, **kwargs):
         raise SourceDataError("Source frame is missing required column: 代码")
 
     monkeypatch.setattr(watch, "fetch_stocks", missing_field_fetch)
@@ -427,12 +429,14 @@ def test_run_once_samples_outside_market_hours(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(
         watch,
         "fetch_stocks",
-        lambda codes: pd.DataFrame([source_row("300857", "协创数据", 295.2)]),
+        lambda codes, **kwargs: pd.DataFrame([source_row("300857", "协创数据", 295.2)]),
     )
     monkeypatch.setattr(
         watch,
         "fetch_indices",
-        lambda codes, symbol: pd.DataFrame([source_row("399006", "创业板指", 2310.2)]),
+        lambda codes, symbol, **kwargs: pd.DataFrame(
+            [source_row("399006", "创业板指", 2310.2)]
+        ),
     )
 
     assert watch.run_once(str(config_path)) == 0
@@ -465,7 +469,7 @@ def test_run_once_records_storage_failure_in_latest_json(
     monkeypatch.setattr(
         watch,
         "fetch_stocks",
-        lambda codes: pd.DataFrame(
+        lambda codes, **kwargs: pd.DataFrame(
             [
                 source_row("300857", "协创数据", 295.2),
                 source_row("300475", "香农芯创", 42.7),
@@ -510,7 +514,7 @@ def test_run_once_records_non_os_storage_failure_in_latest_json(
     monkeypatch.setattr(
         watch,
         "fetch_stocks",
-        lambda codes: pd.DataFrame(
+        lambda codes, **kwargs: pd.DataFrame(
             [
                 source_row("300857", "协创数据", 295.2),
                 source_row("300475", "香农芯创", 42.7),
@@ -595,7 +599,7 @@ def test_run_backfill_today_writes_intraday_csv_markdown_and_json(
     monkeypatch.setattr(
         watch,
         "fetch_stock_intraday",
-        lambda code, start, end: pd.DataFrame(
+        lambda code, start, end, **kwargs: pd.DataFrame(
             [
                 minute_source_row("2026-07-03 09:31:00", 295.2),
                 minute_source_row("2026-07-03 09:32:00", 296.0),
@@ -605,14 +609,14 @@ def test_run_backfill_today_writes_intraday_csv_markdown_and_json(
     monkeypatch.setattr(
         watch,
         "fetch_index_intraday",
-        lambda code, start, end: pd.DataFrame(
+        lambda code, start, end, **kwargs: pd.DataFrame(
             [minute_source_row("2026-07-03 09:31:00", 2310.2)]
         ),
     )
     monkeypatch.setattr(
         watch,
         "fetch_etf_intraday",
-        lambda code, start, end: pd.DataFrame(
+        lambda code, start, end, **kwargs: pd.DataFrame(
             [minute_source_row("2026-07-03 09:31:00", 4.037)]
         ),
     )
@@ -670,12 +674,12 @@ def test_run_backfill_today_keeps_successful_target_when_one_target_fails(
     monkeypatch.setattr(
         watch,
         "fetch_stock_intraday",
-        lambda code, start, end: pd.DataFrame(
+        lambda code, start, end, **kwargs: pd.DataFrame(
             [minute_source_row("2026-07-03 09:31:00", 295.2)]
         ),
     )
 
-    def failing_index_fetch(code: str, start: str, end: str) -> pd.DataFrame:
+    def failing_index_fetch(code: str, start: str, end: str, **kwargs) -> pd.DataFrame:
         raise RuntimeError("index source offline")
 
     monkeypatch.setattr(watch, "fetch_index_intraday", failing_index_fetch)
@@ -719,7 +723,7 @@ def test_run_backfill_today_writes_outputs_when_all_targets_empty(
     monkeypatch.setattr(
         watch,
         "fetch_stock_intraday",
-        lambda code, start, end: pd.DataFrame(
+        lambda code, start, end, **kwargs: pd.DataFrame(
             columns=["时间", "开盘", "收盘", "最高", "最低", "成交量", "成交额", "均价"]
         ),
     )
@@ -747,7 +751,7 @@ def test_collect_intraday_records_emits_slow_fetch_warning(
     monkeypatch.setattr(
         watch,
         "fetch_stock_intraday",
-        lambda code, start, end: pd.DataFrame(
+        lambda code, start, end, **kwargs: pd.DataFrame(
             [minute_source_row("2026-07-03 09:31:00", 295.2)]
         ),
     )
@@ -791,7 +795,7 @@ def test_run_backfill_today_records_storage_failure_in_today_json(
     monkeypatch.setattr(
         watch,
         "fetch_stock_intraday",
-        lambda code, start, end: pd.DataFrame(
+        lambda code, start, end, **kwargs: pd.DataFrame(
             [minute_source_row("2026-07-03 09:31:00", 295.2)]
         ),
     )
