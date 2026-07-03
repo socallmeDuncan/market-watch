@@ -16,10 +16,20 @@ STOCK_COLUMNS = [
     ("high", "最高"),
     ("low", "最低"),
     ("prev_close", "昨收"),
+    ("volume", "成交量"),
     ("amount", "成交额"),
+    ("amplitude", "振幅"),
+    ("volume_ratio", "量比"),
     ("turnover_rate", "换手率"),
+    ("pe_dynamic", "市盈率-动态"),
+    ("pb_ratio", "市净率"),
+    ("total_market_value", "总市值"),
+    ("circulating_market_value", "流通市值"),
     ("speed", "涨速"),
     ("five_min_change", "5分钟涨跌"),
+    ("sixty_day_change_pct", "60日涨跌幅"),
+    ("year_to_date_change_pct", "年初至今涨跌幅"),
+    ("source", "来源"),
 ]
 
 INDEX_COLUMNS = [
@@ -31,6 +41,26 @@ INDEX_COLUMNS = [
     ("high", "最高"),
     ("low", "最低"),
     ("amount", "成交额"),
+    ("source", "来源"),
+]
+
+ETF_COLUMNS = [
+    ("code", "代码"),
+    ("name", "名称"),
+    ("price", "最新价"),
+    ("change_pct", "涨跌幅"),
+    ("open", "今开"),
+    ("high", "最高"),
+    ("low", "最低"),
+    ("prev_close", "昨收"),
+    ("volume", "成交量"),
+    ("amount", "成交额"),
+    ("amplitude", "振幅"),
+    ("volume_ratio", "量比"),
+    ("turnover_rate", "换手率"),
+    ("total_market_value", "总市值"),
+    ("circulating_market_value", "流通市值"),
+    ("source", "来源"),
 ]
 
 SUMMARY_COLUMNS = [
@@ -103,6 +133,9 @@ def build_json_payload(
             "indices": [
                 record for record in records if record.get("asset_type") == "index"
             ],
+            "etfs": [
+                record for record in records if record.get("asset_type") == "etf"
+            ],
         },
         "history_summary": history_summary,
         "errors": errors,
@@ -130,6 +163,10 @@ def render_markdown(
         "## 当前指数行情",
         "",
         _render_table(payload["current"]["indices"], INDEX_COLUMNS, "未获取到数据。"),
+        "",
+        "## 当前 ETF 行情",
+        "",
+        _render_table(payload["current"]["etfs"], ETF_COLUMNS, "未获取到数据。"),
         "",
         history_title,
         "",

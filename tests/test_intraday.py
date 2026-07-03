@@ -86,6 +86,20 @@ def test_normalize_intraday_frame_maps_minute_rows_to_schema() -> None:
     assert rows[1]["volume"] == 2345
 
 
+def test_normalize_intraday_frame_preserves_fetcher_source_marker() -> None:
+    frame = minute_frame()
+    frame["_market_watch_source"] = "akshare_sina_minute_1m"
+
+    rows = normalize_intraday_frame(
+        frame,
+        target(),
+        asset_type="stock",
+        trade_date="2026-07-03",
+    )
+
+    assert rows[0]["source"] == "akshare_sina_minute_1m"
+
+
 def test_normalize_intraday_frame_raises_when_required_column_missing() -> None:
     frame = minute_frame().drop(columns=["成交额"])
 

@@ -8,6 +8,7 @@ from market_watch.normalize import (
     SNAPSHOT_FIELDS,
     make_error,
     normalize_index_frame,
+    normalize_etf_frame,
     normalize_stock_frame,
 )
 
@@ -30,9 +31,16 @@ def test_snapshot_fields_are_exact() -> None:
         "volume",
         "amount",
         "amplitude",
+        "volume_ratio",
         "turnover_rate",
+        "pe_dynamic",
+        "pb_ratio",
+        "total_market_value",
+        "circulating_market_value",
         "speed",
         "five_min_change",
+        "sixty_day_change_pct",
+        "year_to_date_change_pct",
         "source",
     ]
 
@@ -53,9 +61,16 @@ def test_normalize_stock_frame_maps_akshare_columns() -> None:
                 "最低": 292.0,
                 "今开": 298.0,
                 "昨收": 293.59,
+                "量比": 1.43,
                 "换手率": 8.1,
+                "市盈率-动态": 42.6,
+                "市净率": 5.7,
+                "总市值": 123456789000,
+                "流通市值": 98765432100,
                 "涨速": 0.22,
                 "5分钟涨跌": 0.8,
+                "60日涨跌幅": 18.5,
+                "年初至今涨跌幅": 32.1,
             }
         ]
     )
@@ -87,11 +102,43 @@ def test_normalize_stock_frame_maps_akshare_columns() -> None:
         "volume": 1234567,
         "amount": 1850000000,
         "amplitude": 2.32,
+        "volume_ratio": 1.43,
         "turnover_rate": 8.1,
+        "pe_dynamic": 42.6,
+        "pb_ratio": 5.7,
+        "total_market_value": 123456789000,
+        "circulating_market_value": 98765432100,
         "speed": 0.22,
         "five_min_change": 0.8,
+        "sixty_day_change_pct": 18.5,
+        "year_to_date_change_pct": 32.1,
         "source": "akshare_em",
     }
+
+
+def test_normalize_stock_frame_preserves_fetcher_source_marker() -> None:
+    frame = pd.DataFrame(
+        [
+            {
+                "代码": "sz300857",
+                "名称": "协创数据",
+                "最新价": 300.41,
+                "_market_watch_source": "akshare_sina_spot",
+            }
+        ]
+    )
+    targets = [{"code": "300857", "name": "协创数据", "role": "primary"}]
+
+    records, errors = normalize_stock_frame(
+        frame,
+        targets,
+        timestamp="2026-07-03 15:35:15",
+        trade_date="2026-07-03",
+    )
+
+    assert errors == []
+    assert records[0]["code"] == "300857"
+    assert records[0]["source"] == "akshare_sina_spot"
 
 
 def test_normalize_index_frame_maps_common_fields_and_stock_only_fields_are_none() -> None:
@@ -128,10 +175,66 @@ def test_normalize_index_frame_maps_common_fields_and_stock_only_fields_are_none
     assert records[0]["code"] == "399006"
     assert records[0]["price"] == 2310.2
     assert records[0]["volume"] == 123456789
+    assert records[0]["volume_ratio"] is None
     assert records[0]["turnover_rate"] is None
+    assert records[0]["pe_dynamic"] is None
+    assert records[0]["pb_ratio"] is None
+    assert records[0]["total_market_value"] is None
+    assert records[0]["circulating_market_value"] is None
     assert records[0]["speed"] is None
     assert records[0]["five_min_change"] is None
+    assert records[0]["sixty_day_change_pct"] is None
+    assert records[0]["year_to_date_change_pct"] is None
     assert records[0]["source"] == "akshare_em"
+
+
+def test_normalize_etf_frame_maps_etf_columns_to_snapshot_schema() -> None:
+    frame = pd.DataFrame(
+        [
+            {
+                "代码": "159915",
+                "名称": "创业板ETF易方达",
+                "最新价": 4.037,
+                "涨跌幅": 0.02,
+                "涨跌额": 0.001,
+                "成交量": 1400000000,
+                "成交额": 5595214000,
+                "振幅": 1.23,
+                "开盘价": 4.02,
+                "最高价": 4.05,
+                "最低价": 4.0,
+                "昨收": 4.036,
+                "量比": 1.2,
+                "换手率": 8.5,
+                "总市值": 123456789,
+                "流通市值": 120000000,
+                "_market_watch_source": "akshare_em_etf_spot",
+            }
+        ]
+    )
+    targets = [{"code": "159915", "name": "创业板ETF易方达", "role": "context"}]
+
+    records, errors = normalize_etf_frame(
+        frame,
+        targets,
+        timestamp="2026-07-03 10:42:30",
+        trade_date="2026-07-03",
+    )
+
+    assert errors == []
+    assert list(records[0].keys()) == SNAPSHOT_FIELDS
+    assert records[0]["asset_type"] == "etf"
+    assert records[0]["code"] == "159915"
+    assert records[0]["price"] == 4.037
+    assert records[0]["open"] == 4.02
+    assert records[0]["high"] == 4.05
+    assert records[0]["low"] == 4
+    assert records[0]["prev_close"] == 4.036
+    assert records[0]["volume_ratio"] == 1.2
+    assert records[0]["turnover_rate"] == 8.5
+    assert records[0]["total_market_value"] == 123456789
+    assert records[0]["circulating_market_value"] == 120000000
+    assert records[0]["source"] == "akshare_em_etf_spot"
 
 
 def test_normalize_reports_missing_target() -> None:

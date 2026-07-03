@@ -11,6 +11,8 @@ from zoneinfo import ZoneInfo
 from market_watch.config import ConfigError, load_config
 from market_watch.fetchers import (
     SourceDataError,
+    fetch_etf_intraday,
+    fetch_etfs,
     fetch_index_intraday,
     fetch_indices,
     fetch_stock_intraday,
@@ -23,6 +25,7 @@ from market_watch.intraday import (
 )
 from market_watch.normalize import (
     make_error,
+    normalize_etf_frame,
     normalize_index_frame,
     normalize_stock_frame,
 )
@@ -119,6 +122,26 @@ def collect_records(
             records.extend(index_records)
             errors.extend(index_errors)
 
+    etf_targets = targets.get("etfs", [])
+    if etf_targets:
+        etf_frame, fetch_errors = _fetch_with_retry(
+            lambda: fetch_etfs([target["code"] for target in etf_targets]),
+            stage="fetch_etfs",
+            timestamp=timestamp,
+            retry_count=retry_count,
+            slow_threshold_seconds=slow_threshold_seconds,
+        )
+        errors.extend(fetch_errors)
+        if etf_frame is not None:
+            etf_records, etf_errors = normalize_etf_frame(
+                etf_frame,
+                etf_targets,
+                timestamp=timestamp,
+                trade_date=trade_date,
+            )
+            records.extend(etf_records)
+            errors.extend(etf_errors)
+
     return records, errors
 
 
@@ -159,6 +182,22 @@ def collect_intraday_records(
             asset_type="index",
             fetcher=fetch_index_intraday,
             stage="fetch_index_intraday",
+            timestamp=timestamp,
+            trade_date=trade_date,
+            start=start,
+            end=end,
+            retry_count=retry_count,
+            slow_threshold_seconds=slow_threshold_seconds,
+        )
+        records.extend(target_records)
+        errors.extend(target_errors)
+
+    for target in targets.get("etfs", []):
+        target_records, target_errors = _normalize_intraday_target(
+            target,
+            asset_type="etf",
+            fetcher=fetch_etf_intraday,
+            stage="fetch_etf_intraday",
             timestamp=timestamp,
             trade_date=trade_date,
             start=start,

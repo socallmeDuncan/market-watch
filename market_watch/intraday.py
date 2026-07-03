@@ -70,7 +70,7 @@ def normalize_intraday_frame(
             "volume": _parse_optional_number(row.get("成交量")),
             "amount": _parse_optional_number(row.get("成交额")),
             "average_price": _parse_optional_number(row.get("均价")),
-            "source": SOURCE_NAME,
+            "source": str(row.get("_market_watch_source") or SOURCE_NAME),
         }
         records.append({field: record.get(field) for field in INTRADAY_FIELDS})
 
