@@ -38,7 +38,7 @@ def sample_config_dict():
             "today_json": "outputs/today.json",
         },
         "source": {
-            "provider": "akshare",
+            "provider": "tencent",
             "stock_source": "eastmoney",
             "index_symbol": "沪深重要指数",
         },

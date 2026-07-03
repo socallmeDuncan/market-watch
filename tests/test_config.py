@@ -152,3 +152,22 @@ def test_validate_config_rejects_missing_index_symbol(sample_config_dict: dict) 
 def test_load_config_rejects_missing_file(tmp_path: Path) -> None:
     with pytest.raises(ConfigError, match="Config file not found"):
         load_config(tmp_path / "missing.yaml")
+
+
+def test_validate_config_accepts_tencent_provider(sample_config_dict: dict) -> None:
+    sample_config_dict["source"]["provider"] = "tencent"
+
+    validate_config(sample_config_dict)
+
+
+def test_validate_config_rejects_unknown_provider(sample_config_dict: dict) -> None:
+    sample_config_dict["source"]["provider"] = "unknown_src"
+
+    with pytest.raises(ConfigError, match="provider must be"):
+        validate_config(sample_config_dict)
+
+
+def test_default_config_uses_tencent_provider() -> None:
+    from market_watch.config import DEFAULT_CONFIG
+
+    assert DEFAULT_CONFIG["source"]["provider"] == "tencent"

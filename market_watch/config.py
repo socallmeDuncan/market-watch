@@ -29,7 +29,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "today_json": "outputs/today.json",
     },
     "source": {
-        "provider": "akshare",
+        "provider": "tencent",
         "stock_source": "eastmoney",
         "index_symbol": "沪深重要指数",
     },
@@ -108,8 +108,8 @@ def validate_config(config: dict[str, Any]) -> None:
 
     source = _require_mapping(config, "source")
     provider = _require_non_empty_string(source, "provider")
-    if provider != "akshare":
-        raise ConfigError("source.provider must be akshare")
+    if provider not in {"akshare", "tencent"}:
+        raise ConfigError("source.provider must be akshare or tencent")
     if indices:
         _require_non_empty_string(source, "index_symbol")
 
