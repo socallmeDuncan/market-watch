@@ -125,6 +125,6 @@ storage:
   today_json: "outputs/today.json"
 
 source:
-  provider: "akshare"
+  provider: "tencent"
   stock_source: "eastmoney_with_sina_fallback"
   index_symbol: "沪深重要指数"
