@@ -87,13 +87,18 @@ python3 watch.py --backfill-today
 
 ## 7. 数据源
 
-- 实时行情主源：AKShare 东方财富接口。
+- 实时行情主源：腾讯财经 `qt.gtimg.cn` 接口，逐只查询，字段含五档盘口、换手率、市盈率等。
 - 实时行情备源：AKShare 新浪接口；主源失败时自动切换。
-- 当日 1 分钟线主源：AKShare 东方财富接口。
+- 当日 1 分钟线主源：腾讯 `ifzq.gtimg.cn` mkline 接口。
 - 当日 1 分钟线备源：AKShare 新浪分钟线接口；主源失败时自动切换。
-- ETF 实时行情和 ETF 1 分钟线使用 AKShare 东方财富 ETF 接口。
 
-东方财富字段更完整。新浪 fallback 能提高可用性，但部分字段会为空，例如量比、换手率、估值和市值字段。JSON/CSV 中的 `source` 字段会标记本条数据来自哪个接口。
+腾讯主源通过 `source.provider: tencent` 启用（默认）。如需切回东方财富主源，把
+`config.yaml` 里 `source.provider` 改为 `akshare`。东财接口在部分网络环境下存在
+不稳定拦截，建议默认使用腾讯主源。
+
+JSON/CSV 中的 `source` 字段标记本条数据来自哪个接口（`tencent_qt` / `tencent_mkline_1m`
+/ `sina_spot` / `sina_minute_1m` / `akshare_em` 等）。新浪备源能提高可用性，但部分字段
+会为空，例如量比、5分钟涨跌、年初至今涨跌幅等字段。
 
 ## 8. 数据边界
 
