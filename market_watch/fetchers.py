@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Iterable
 
 import pandas as pd
+import requests
 
 
 class SourceDataError(RuntimeError):
@@ -307,3 +308,167 @@ def _tencent_prefix(code: str, asset_type: str) -> str:
     if normalized.startswith(("5", "6", "9")):
         return "sh"
     return "sz"
+
+
+TENCENT_QT_URL = "https://qt.gtimg.cn/q="
+TENCENT_QT_HEADERS = {
+    "User-Agent": "Mozilla/5.0",
+    "Referer": "https://gu.qq.com/",
+}
+
+# 腾讯 qt 字段索引 → 中文列名。单位坑：成交额[37]是万，市值[44][45]是亿。
+# 见 spec 第 2 节字段索引表。
+_TENCENT_QT_FIELD_INDEX = {
+    1: "名称",
+    2: "代码",
+    3: "最新价",
+    4: "昨收",
+    5: "今开",
+    6: "成交量",
+    31: "涨跌额",
+    32: "涨跌幅",
+    33: "最高",
+    34: "最低",
+    37: "成交额",
+    38: "换手率",
+    39: "市盈率-动态",
+    43: "振幅",
+    44: "流通市值",
+    45: "总市值",
+}
+
+
+def _to_number(value: Any) -> int | float | None:
+    """Parse a Tencent field string to number; return None for empty/invalid."""
+    if value is None:
+        return None
+    text = str(value).strip()
+    if text in {"", "-", "--"}:
+        return None
+    try:
+        number = float(text)
+    except (TypeError, ValueError):
+        return None
+    if number.is_integer():
+        return int(number)
+    return number
+
+
+def _tencent_qt_session() -> Any:
+    session = requests.Session()
+    session.trust_env = False
+    return session
+
+
+def _parse_tencent_qt_response(text: str) -> dict[str, Any]:
+    """Parse a single v_code="..."; response into a {col: value} dict.
+
+    Returns empty dict if response is malformed or too short.
+    """
+    if "=" not in text:
+        return {}
+    payload = text.split("=", 1)[1].strip().rstrip(";").strip('"')
+    parts = payload.split("~")
+    # 股票响应约 48 字段，指数/ETF 响应仅 33~34 字段（缺市值/市盈率等尾部字段）。
+    # 字段索引循环会自动跳过越界索引，故只需保证含日期/涨跌区段即可。
+    if len(parts) < 32:
+        return {}
+    row: dict[str, Any] = {}
+    for index, col in _TENCENT_QT_FIELD_INDEX.items():
+        if index >= len(parts):
+            continue
+        raw = parts[index]
+        if col in {"名称", "代码"}:
+            row[col] = raw
+            continue
+        row[col] = _to_number(raw)
+    # 单位转换：万 -> 元，亿 -> 元
+    if row.get("成交额") is not None:
+        row["成交额"] = row["成交额"] * 10000
+    if row.get("流通市值") is not None:
+        row["流通市值"] = row["流通市值"] * 1e8
+    if row.get("总市值") is not None:
+        row["总市值"] = row["总市值"] * 1e8
+    return row
+
+
+def _tencent_realtime_multi(codes: list[str], *, asset_type: str) -> pd.DataFrame:
+    """Query Tencent qt for multiple codes, return 中文列名 DataFrame."""
+    session = _tencent_qt_session()
+    rows: list[dict[str, Any]] = []
+    for code in codes:
+        prefix = _tencent_prefix(code, asset_type)
+        response = session.get(
+            f"{TENCENT_QT_URL}{prefix}{code}",
+            headers=TENCENT_QT_HEADERS,
+            timeout=15,
+        )
+        row = _parse_tencent_qt_response(response.text)
+        if not row or row.get("最新价") is None:
+            raise SourceDataError(f"Tencent returned empty/invalid quote for {code}")
+        rows.append(row)
+    frame = pd.DataFrame(rows)
+    frame = _with_source(frame, "tencent_qt")
+    return frame
+
+
+def _fetch_stocks_tencent(codes: Iterable[str]) -> pd.DataFrame:
+    """Fetch realtime stock quotes from Tencent, fallback to Sina on failure."""
+    code_list = [str(c) for c in codes]
+    try:
+        return _tencent_realtime_multi(code_list, asset_type="stock")
+    except Exception as primary_exc:
+        try:
+            return _sina_stocks_fallback(code_list)
+        except Exception as fallback_exc:
+            raise RuntimeError(
+                f"Tencent stock fetch failed: {primary_exc}; "
+                f"Sina stock fetch failed: {fallback_exc}"
+            ) from fallback_exc
+
+
+def _sina_stocks_fallback(codes: list[str]) -> pd.DataFrame:
+    """Fallback: use akshare Sina spot, filter to requested codes."""
+    akshare_module = _import_akshare()
+    frame = _with_source(akshare_module.stock_zh_a_spot(), "sina_spot")
+    return _filter_by_codes(frame, codes)
+
+
+def _fetch_indices_tencent(codes: Iterable[str]) -> pd.DataFrame:
+    code_list = [str(c) for c in codes]
+    try:
+        return _tencent_realtime_multi(code_list, asset_type="index")
+    except Exception as primary_exc:
+        try:
+            return _sina_indices_fallback(code_list)
+        except Exception as fallback_exc:
+            raise RuntimeError(
+                f"Tencent index fetch failed: {primary_exc}; "
+                f"Sina index fetch failed: {fallback_exc}"
+            ) from fallback_exc
+
+
+def _fetch_etfs_tencent(codes: Iterable[str]) -> pd.DataFrame:
+    code_list = [str(c) for c in codes]
+    try:
+        return _tencent_realtime_multi(code_list, asset_type="etf")
+    except Exception as primary_exc:
+        try:
+            return _sina_etfs_fallback(code_list)
+        except Exception as fallback_exc:
+            raise RuntimeError(
+                f"Tencent etf fetch failed: {primary_exc}; "
+                f"Sina etf fetch failed: {fallback_exc}"
+            ) from fallback_exc
+
+
+def _sina_indices_fallback(codes: list[str]) -> pd.DataFrame:
+    akshare_module = _import_akshare()
+    frame = _with_source(akshare_module.stock_zh_index_spot_sina(), "sina_spot")
+    return _filter_by_codes(frame, codes)
+
+
+def _sina_etfs_fallback(codes: list[str]) -> pd.DataFrame:
+    akshare_module = _import_akshare()
+    frame = _with_source(akshare_module.fund_etf_spot_em(), "sina_spot")
+    return _filter_by_codes(frame, codes)

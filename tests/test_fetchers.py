@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from unittest.mock import patch, MagicMock
+
 import pandas as pd
 import pytest
 
@@ -536,3 +538,99 @@ def test_tencent_prefix_etf_hushi() -> None:
 
 def test_tencent_prefix_etf_shenshi() -> None:
     assert _tencent_prefix("159915", "etf") == "sz"
+
+
+TENCENT_STOCK_RESPONSE = (
+    'v_sz300857="51~协创数据~300857~300.41~293.59~293.59~173803~92752~81051'
+    '~300.40~50~300.39~10~300.38~14~300.37~3~300.35~14~300.41~0~300.50~67'
+    '~300.51~11~300.53~29~300.55~113~~20260703161421~6.82~2.32~309.80~289.23'
+    '~300.41/173803/5208699946~173803~520870~3.57~84.22~~309.80~289.23~7.01'
+    '~1462.58~1470.10~28.72~352.31";'
+)
+
+
+@patch("market_watch.fetchers.requests")
+def test_fetch_stocks_tencent_parses_fields(mock_requests):
+    mock_resp = MagicMock()
+    mock_resp.text = TENCENT_STOCK_RESPONSE
+    mock_requests.Session.return_value.get.return_value = mock_resp
+
+    result = fetch_stocks(["300857"], source="tencent")
+
+    assert len(result) == 1
+    row = result.iloc[0]
+    assert row["代码"] == "300857"
+    assert row["名称"] == "协创数据"
+    assert row["最新价"] == 300.41
+    assert row["昨收"] == 293.59
+    assert row["今开"] == 293.59
+    assert row["最高"] == 309.80
+    assert row["最低"] == 289.23
+    assert row["涨跌额"] == 6.82
+    assert row["涨跌幅"] == 2.32
+    assert row["成交量"] == 173803
+    assert row["换手率"] == 3.57
+    assert row["振幅"] == 7.01
+    assert row["市盈率-动态"] == 84.22
+    assert row["_market_watch_source"] == "tencent_qt"
+
+
+@patch("market_watch.fetchers.requests")
+def test_fetch_stocks_tencent_amount_in_yuan_not_wan(mock_requests):
+    """成交额[37]腾讯单位是万，必须×10000转成元."""
+    mock_resp = MagicMock()
+    mock_resp.text = TENCENT_STOCK_RESPONSE
+    mock_requests.Session.return_value.get.return_value = mock_resp
+
+    result = fetch_stocks(["300857"], source="tencent")
+
+    assert result.iloc[0]["成交额"] == 520870 * 10000
+
+
+@patch("market_watch.fetchers.requests")
+def test_fetch_stocks_tencent_market_value_in_yuan(mock_requests):
+    """总市值[45]/流通市值[44]腾讯单位是亿，必须×1e8转成元."""
+    mock_resp = MagicMock()
+    mock_resp.text = TENCENT_STOCK_RESPONSE
+    mock_requests.Session.return_value.get.return_value = mock_resp
+
+    result = fetch_stocks(["300857"], source="tencent")
+
+    assert result.iloc[0]["总市值"] == 1470.10 * 1e8
+    assert result.iloc[0]["流通市值"] == 1462.58 * 1e8
+
+
+@patch("market_watch.fetchers.requests")
+def test_fetch_indices_tencent_uses_sh_prefix_for_shanghai_index(mock_requests):
+    mock_resp = MagicMock()
+    mock_resp.text = (
+        'v_sh000001="51~上证指数~000001~4043.64~4028.93~4030.12~~0~0'
+        '~~~~~~~20260703150000~14.71~0.36~4044.12~4028.93'
+        '~~~~~~~~1465563104854~~~~~";'
+    )
+    mock_requests.Session.return_value.get.return_value = mock_resp
+
+    result = fetch_indices(["000001"], symbol="沪深重要指数", source="tencent")
+
+    called_url = mock_requests.Session.return_value.get.call_args[0][0]
+    assert "sh000001" in called_url
+    assert result.iloc[0]["代码"] == "000001"
+    assert result.iloc[0]["名称"] == "上证指数"
+    assert result.iloc[0]["最新价"] == 4043.64
+    assert result.iloc[0]["_market_watch_source"] == "tencent_qt"
+
+
+@patch("market_watch.fetchers.requests")
+def test_fetch_etfs_tencent_uses_sh_prefix_for_hushi_etf(mock_requests):
+    mock_resp = MagicMock()
+    mock_resp.text = (
+        'v_sh512480="51~UC半导体ETF国联安~512480~1.331~1.325~1.326~~0~0'
+        '~~~~~~~20260703150000~0.006~0.45~1.332~1.330~~~~~~~~~~~~~~";'
+    )
+    mock_requests.Session.return_value.get.return_value = mock_resp
+
+    result = fetch_etfs(["512480"], source="tencent")
+
+    called_url = mock_requests.Session.return_value.get.call_args[0][0]
+    assert "sh512480" in called_url
+    assert result.iloc[0]["最新价"] == 1.331
