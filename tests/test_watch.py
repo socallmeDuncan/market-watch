@@ -27,9 +27,38 @@ def source_row(code: str, name: str, price: float) -> dict[str, object]:
         "成交量": 12345,
         "成交额": 67890,
         "振幅": 2.5,
+        "量比": 1.4,
         "换手率": 1.1,
+        "市盈率-动态": 42.6,
+        "市净率": 5.7,
+        "总市值": 123456789000,
+        "流通市值": 98765432100,
         "涨速": 0.2,
         "5分钟涨跌": 0.5,
+        "60日涨跌幅": 18.5,
+        "年初至今涨跌幅": 32.1,
+    }
+
+
+def etf_source_row(code: str, name: str, price: float) -> dict[str, object]:
+    return {
+        "代码": code,
+        "名称": name,
+        "最新价": price,
+        "涨跌幅": 0.02,
+        "涨跌额": 0.001,
+        "开盘价": price - 0.02,
+        "最高价": price + 0.03,
+        "最低价": price - 0.04,
+        "昨收": price - 0.01,
+        "成交量": 1400000000,
+        "成交额": 5595214000,
+        "振幅": 1.23,
+        "量比": 1.2,
+        "换手率": 8.5,
+        "总市值": 123456789,
+        "流通市值": 120000000,
+        "_market_watch_source": "akshare_em_etf_spot",
     }
 
 
@@ -38,6 +67,7 @@ def test_run_once_writes_csv_markdown_and_json(tmp_path, capsys, monkeypatch) ->
         "targets": {
             "stocks": [{"code": "300857", "name": "协创数据", "role": "primary"}],
             "indices": [{"code": "399006", "name": "创业板指", "role": "context"}],
+            "etfs": [{"code": "159915", "name": "创业板ETF易方达", "role": "context"}],
         },
         "runtime": {
             "market_timezone": "Asia/Shanghai",
@@ -62,12 +92,21 @@ def test_run_once_writes_csv_markdown_and_json(tmp_path, capsys, monkeypatch) ->
     monkeypatch.setattr(
         watch,
         "fetch_stocks",
-        lambda codes: pd.DataFrame([source_row("300857", "协创数据", 295.2)]),
+        lambda codes, **kwargs: pd.DataFrame([source_row("300857", "协创数据", 295.2)]),
     )
     monkeypatch.setattr(
         watch,
         "fetch_indices",
-        lambda codes, symbol: pd.DataFrame([source_row("399006", "创业板指", 2310.2)]),
+        lambda codes, symbol, **kwargs: pd.DataFrame(
+            [source_row("399006", "创业板指", 2310.2)]
+        ),
+    )
+    monkeypatch.setattr(
+        watch,
+        "fetch_etfs",
+        lambda codes, **kwargs: pd.DataFrame(
+            [etf_source_row("159915", "创业板ETF易方达", 4.037)]
+        ),
     )
 
     result = watch.run_once(str(config_path))
@@ -81,13 +120,25 @@ def test_run_once_writes_csv_markdown_and_json(tmp_path, capsys, monkeypatch) ->
     assert markdown_path.exists()
     assert json_path.exists()
     assert "协创数据" in markdown_path.read_text(encoding="utf-8")
+    assert "创业板ETF易方达" in markdown_path.read_text(encoding="utf-8")
     assert "# 盘中行情数据快照" in capsys.readouterr().out
 
     payload = json.loads(json_path.read_text(encoding="utf-8"))
     assert payload["current"]["stocks"][0]["code"] == "300857"
     assert payload["current"]["stocks"][0]["name"] == "协创数据"
+    assert payload["current"]["stocks"][0]["volume_ratio"] == 1.4
+    assert payload["current"]["stocks"][0]["pe_dynamic"] == 42.6
+    assert payload["current"]["stocks"][0]["pb_ratio"] == 5.7
+    assert payload["current"]["stocks"][0]["total_market_value"] == 123456789000
+    assert payload["current"]["stocks"][0]["circulating_market_value"] == 98765432100
+    assert payload["current"]["stocks"][0]["sixty_day_change_pct"] == 18.5
+    assert payload["current"]["stocks"][0]["year_to_date_change_pct"] == 32.1
     assert payload["current"]["indices"][0]["code"] == "399006"
     assert payload["current"]["indices"][0]["name"] == "创业板指"
+    assert payload["current"]["etfs"][0]["code"] == "159915"
+    assert payload["current"]["etfs"][0]["name"] == "创业板ETF易方达"
+    assert payload["current"]["etfs"][0]["price"] == 4.037
+    assert payload["current"]["etfs"][0]["source"] == "akshare_em_etf_spot"
 
 
 def test_market_hours_gate_uses_shanghai_weekday_sessions() -> None:
@@ -107,14 +158,16 @@ def test_market_hours_gate_uses_shanghai_weekday_sessions() -> None:
 def test_collect_records_keeps_index_records_when_stock_fetch_fails(
     sample_config_dict, monkeypatch
 ) -> None:
-    def failing_stock_fetch(codes):
+    sample_config_dict["targets"]["etfs"] = []
+
+    def failing_stock_fetch(codes, **kwargs):
         raise RuntimeError("stock source offline")
 
     monkeypatch.setattr(watch, "fetch_stocks", failing_stock_fetch)
     monkeypatch.setattr(
         watch,
         "fetch_indices",
-        lambda codes, symbol: pd.DataFrame(
+        lambda codes, symbol, **kwargs: pd.DataFrame(
             [
                 source_row("399006", "创业板指", 2310.2),
                 source_row("399001", "深证成指", 11000.1),
@@ -131,10 +184,12 @@ def test_collect_records_keeps_index_records_when_stock_fetch_fails(
 
 
 def test_collect_records_retries_stock_fetch_once(sample_config_dict, monkeypatch) -> None:
+    sample_config_dict["targets"]["stocks"] = sample_config_dict["targets"]["stocks"][:2]
     sample_config_dict["targets"]["indices"] = []
+    sample_config_dict["targets"]["etfs"] = []
     calls = {"stock": 0}
 
-    def flaky_stock_fetch(codes):
+    def flaky_stock_fetch(codes, **kwargs):
         calls["stock"] += 1
         if calls["stock"] == 1:
             raise RuntimeError("transient source failure")
@@ -157,7 +212,9 @@ def test_collect_records_retries_stock_fetch_once(sample_config_dict, monkeypatc
 def test_collect_records_emits_slow_fetch_warning(
     sample_config_dict, monkeypatch
 ) -> None:
+    sample_config_dict["targets"]["stocks"] = sample_config_dict["targets"]["stocks"][:2]
     sample_config_dict["targets"]["indices"] = []
+    sample_config_dict["targets"]["etfs"] = []
     sample_config_dict["runtime"]["request_timeout_seconds"] = 15
     times = iter([100.0, 116.5])
 
@@ -165,7 +222,7 @@ def test_collect_records_emits_slow_fetch_warning(
     monkeypatch.setattr(
         watch,
         "fetch_stocks",
-        lambda codes: pd.DataFrame(
+        lambda codes, **kwargs: pd.DataFrame(
             [
                 source_row("300857", "协创数据", 295.2),
                 source_row("300475", "香农芯创", 42.7),
@@ -185,8 +242,9 @@ def test_collect_records_reports_source_data_error_as_field_missing(
     sample_config_dict, monkeypatch
 ) -> None:
     sample_config_dict["targets"]["indices"] = []
+    sample_config_dict["targets"]["etfs"] = []
 
-    def missing_field_fetch(codes):
+    def missing_field_fetch(codes, **kwargs):
         raise SourceDataError("Source frame is missing required column: 代码")
 
     monkeypatch.setattr(watch, "fetch_stocks", missing_field_fetch)
@@ -346,6 +404,7 @@ def test_run_once_samples_outside_market_hours(tmp_path, monkeypatch) -> None:
         "targets": {
             "stocks": [{"code": "300857", "name": "协创数据", "role": "primary"}],
             "indices": [{"code": "399006", "name": "创业板指", "role": "context"}],
+            "etfs": [{"code": "159915", "name": "创业板ETF易方达", "role": "context"}],
         },
         "runtime": {
             "market_timezone": "Asia/Shanghai",
@@ -370,12 +429,14 @@ def test_run_once_samples_outside_market_hours(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(
         watch,
         "fetch_stocks",
-        lambda codes: pd.DataFrame([source_row("300857", "协创数据", 295.2)]),
+        lambda codes, **kwargs: pd.DataFrame([source_row("300857", "协创数据", 295.2)]),
     )
     monkeypatch.setattr(
         watch,
         "fetch_indices",
-        lambda codes, symbol: pd.DataFrame([source_row("399006", "创业板指", 2310.2)]),
+        lambda codes, symbol, **kwargs: pd.DataFrame(
+            [source_row("399006", "创业板指", 2310.2)]
+        ),
     )
 
     assert watch.run_once(str(config_path)) == 0
@@ -387,7 +448,9 @@ def test_run_once_samples_outside_market_hours(tmp_path, monkeypatch) -> None:
 def test_run_once_records_storage_failure_in_latest_json(
     tmp_path, monkeypatch, sample_config_dict
 ) -> None:
+    sample_config_dict["targets"]["stocks"] = sample_config_dict["targets"]["stocks"][:2]
     sample_config_dict["targets"]["indices"] = []
+    sample_config_dict["targets"]["etfs"] = []
     sample_config_dict["storage"] = {
         "snapshot_dir": str(tmp_path / "snapshots"),
         "latest_markdown": str(tmp_path / "latest.md"),
@@ -406,7 +469,7 @@ def test_run_once_records_storage_failure_in_latest_json(
     monkeypatch.setattr(
         watch,
         "fetch_stocks",
-        lambda codes: pd.DataFrame(
+        lambda codes, **kwargs: pd.DataFrame(
             [
                 source_row("300857", "协创数据", 295.2),
                 source_row("300475", "香农芯创", 42.7),
@@ -430,7 +493,9 @@ def test_run_once_records_storage_failure_in_latest_json(
 def test_run_once_records_non_os_storage_failure_in_latest_json(
     tmp_path, monkeypatch, sample_config_dict
 ) -> None:
+    sample_config_dict["targets"]["stocks"] = sample_config_dict["targets"]["stocks"][:2]
     sample_config_dict["targets"]["indices"] = []
+    sample_config_dict["targets"]["etfs"] = []
     sample_config_dict["storage"] = {
         "snapshot_dir": str(tmp_path / "snapshots"),
         "latest_markdown": str(tmp_path / "latest.md"),
@@ -449,7 +514,7 @@ def test_run_once_records_non_os_storage_failure_in_latest_json(
     monkeypatch.setattr(
         watch,
         "fetch_stocks",
-        lambda codes: pd.DataFrame(
+        lambda codes, **kwargs: pd.DataFrame(
             [
                 source_row("300857", "协创数据", 295.2),
                 source_row("300475", "香农芯创", 42.7),
@@ -506,6 +571,7 @@ def test_run_backfill_today_writes_intraday_csv_markdown_and_json(
         "targets": {
             "stocks": [{"code": "300857", "name": "协创数据", "role": "primary"}],
             "indices": [{"code": "399006", "name": "创业板指", "role": "context"}],
+            "etfs": [{"code": "159915", "name": "创业板ETF易方达", "role": "context"}],
         },
         "runtime": {
             "market_timezone": "Asia/Shanghai",
@@ -533,7 +599,7 @@ def test_run_backfill_today_writes_intraday_csv_markdown_and_json(
     monkeypatch.setattr(
         watch,
         "fetch_stock_intraday",
-        lambda code, start, end: pd.DataFrame(
+        lambda code, start, end, **kwargs: pd.DataFrame(
             [
                 minute_source_row("2026-07-03 09:31:00", 295.2),
                 minute_source_row("2026-07-03 09:32:00", 296.0),
@@ -543,8 +609,15 @@ def test_run_backfill_today_writes_intraday_csv_markdown_and_json(
     monkeypatch.setattr(
         watch,
         "fetch_index_intraday",
-        lambda code, start, end: pd.DataFrame(
+        lambda code, start, end, **kwargs: pd.DataFrame(
             [minute_source_row("2026-07-03 09:31:00", 2310.2)]
+        ),
+    )
+    monkeypatch.setattr(
+        watch,
+        "fetch_etf_intraday",
+        lambda code, start, end, **kwargs: pd.DataFrame(
+            [minute_source_row("2026-07-03 09:31:00", 4.037)]
         ),
     )
 
@@ -562,7 +635,12 @@ def test_run_backfill_today_writes_intraday_csv_markdown_and_json(
         "start": "2026-07-03 09:30:00",
         "end": "2026-07-03 15:00:00",
     }
-    assert [row["code"] for row in payload["rows"]] == ["300857", "300857", "399006"]
+    assert [row["code"] for row in payload["rows"]] == [
+        "300857",
+        "300857",
+        "399006",
+        "159915",
+    ]
     assert payload["summary"]["items"][0]["row_count"] == 2
 
 
@@ -596,12 +674,12 @@ def test_run_backfill_today_keeps_successful_target_when_one_target_fails(
     monkeypatch.setattr(
         watch,
         "fetch_stock_intraday",
-        lambda code, start, end: pd.DataFrame(
+        lambda code, start, end, **kwargs: pd.DataFrame(
             [minute_source_row("2026-07-03 09:31:00", 295.2)]
         ),
     )
 
-    def failing_index_fetch(code: str, start: str, end: str) -> pd.DataFrame:
+    def failing_index_fetch(code: str, start: str, end: str, **kwargs) -> pd.DataFrame:
         raise RuntimeError("index source offline")
 
     monkeypatch.setattr(watch, "fetch_index_intraday", failing_index_fetch)
@@ -645,7 +723,7 @@ def test_run_backfill_today_writes_outputs_when_all_targets_empty(
     monkeypatch.setattr(
         watch,
         "fetch_stock_intraday",
-        lambda code, start, end: pd.DataFrame(
+        lambda code, start, end, **kwargs: pd.DataFrame(
             columns=["时间", "开盘", "收盘", "最高", "最低", "成交量", "成交额", "均价"]
         ),
     )
@@ -665,6 +743,7 @@ def test_collect_intraday_records_emits_slow_fetch_warning(
 ) -> None:
     sample_config_dict["targets"]["stocks"] = [sample_config_dict["targets"]["stocks"][0]]
     sample_config_dict["targets"]["indices"] = []
+    sample_config_dict["targets"]["etfs"] = []
     sample_config_dict["runtime"]["request_timeout_seconds"] = 15
     times = iter([100.0, 116.5])
 
@@ -672,7 +751,7 @@ def test_collect_intraday_records_emits_slow_fetch_warning(
     monkeypatch.setattr(
         watch,
         "fetch_stock_intraday",
-        lambda code, start, end: pd.DataFrame(
+        lambda code, start, end, **kwargs: pd.DataFrame(
             [minute_source_row("2026-07-03 09:31:00", 295.2)]
         ),
     )
@@ -716,7 +795,7 @@ def test_run_backfill_today_records_storage_failure_in_today_json(
     monkeypatch.setattr(
         watch,
         "fetch_stock_intraday",
-        lambda code, start, end: pd.DataFrame(
+        lambda code, start, end, **kwargs: pd.DataFrame(
             [minute_source_row("2026-07-03 09:31:00", 295.2)]
         ),
     )

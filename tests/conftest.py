@@ -9,11 +9,16 @@ def sample_config_dict():
             "stocks": [
                 {"code": "300857", "name": "协创数据", "role": "primary"},
                 {"code": "300475", "name": "香农芯创", "role": "compare"},
+                {"code": "300442", "name": "润泽科技", "role": "compare"},
             ],
             "indices": [
                 {"code": "399006", "name": "创业板指", "role": "context"},
                 {"code": "399001", "name": "深证成指", "role": "context"},
                 {"code": "000001", "name": "上证指数", "role": "context"},
+            ],
+            "etfs": [
+                {"code": "159915", "name": "创业板ETF易方达", "role": "context"},
+                {"code": "588000", "name": "科创50ETF华夏", "role": "context"},
             ],
         },
         "runtime": {
@@ -33,7 +38,7 @@ def sample_config_dict():
             "today_json": "outputs/today.json",
         },
         "source": {
-            "provider": "akshare",
+            "provider": "tencent",
             "stock_source": "eastmoney",
             "index_symbol": "沪深重要指数",
         },

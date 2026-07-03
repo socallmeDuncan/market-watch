@@ -31,9 +31,16 @@ def stock_record(**overrides: object) -> dict[str, object]:
         "volume": 1234567,
         "amount": 1850000000,
         "amplitude": 2.32,
+        "volume_ratio": 1.43,
         "turnover_rate": 8.1,
+        "pe_dynamic": 42.6,
+        "pb_ratio": 5.7,
+        "total_market_value": 123456789000,
+        "circulating_market_value": 98765432100,
         "speed": 0.22,
         "five_min_change": 0.8,
+        "sixty_day_change_pct": 18.5,
+        "year_to_date_change_pct": 32.1,
         "source": "akshare_em",
     }
     record.update(overrides)
@@ -58,10 +65,51 @@ def index_record(**overrides: object) -> dict[str, object]:
         "volume": 123456789,
         "amount": 220000000000,
         "amplitude": 1.52,
+        "volume_ratio": None,
         "turnover_rate": None,
+        "pe_dynamic": None,
+        "pb_ratio": None,
+        "total_market_value": None,
+        "circulating_market_value": None,
         "speed": None,
         "five_min_change": None,
+        "sixty_day_change_pct": None,
+        "year_to_date_change_pct": None,
         "source": "akshare_em",
+    }
+    record.update(overrides)
+    return record
+
+
+def etf_record(**overrides: object) -> dict[str, object]:
+    record: dict[str, object] = {
+        "timestamp": TIMESTAMP,
+        "trade_date": "2026-07-03",
+        "asset_type": "etf",
+        "code": "159915",
+        "name": "创业板ETF易方达",
+        "role": "context",
+        "price": 4.037,
+        "change_pct": 0.02,
+        "change_amount": 0.001,
+        "open": 4.02,
+        "high": 4.05,
+        "low": 4,
+        "prev_close": 4.036,
+        "volume": 1400000000,
+        "amount": 5595214000,
+        "amplitude": 1.23,
+        "volume_ratio": 1.2,
+        "turnover_rate": 8.5,
+        "pe_dynamic": None,
+        "pb_ratio": None,
+        "total_market_value": 123456789,
+        "circulating_market_value": 120000000,
+        "speed": None,
+        "five_min_change": None,
+        "sixty_day_change_pct": None,
+        "year_to_date_change_pct": None,
+        "source": "akshare_em_etf_spot",
     }
     record.update(overrides)
     return record
@@ -107,7 +155,7 @@ def table_header_after(markdown: str, section_title: str) -> list[str]:
 def test_build_json_payload_groups_stock_and_index_records() -> None:
     payload = build_json_payload(
         TIMESTAMP,
-        [stock_record(), index_record()],
+        [stock_record(), index_record(), etf_record()],
         history_summary(),
         [error_item()],
     )
@@ -117,6 +165,7 @@ def test_build_json_payload_groups_stock_and_index_records() -> None:
         "current": {
             "stocks": [stock_record()],
             "indices": [index_record()],
+            "etfs": [etf_record()],
         },
         "history_summary": history_summary(),
         "errors": [error_item()],
@@ -126,7 +175,7 @@ def test_build_json_payload_groups_stock_and_index_records() -> None:
 def test_render_markdown_contains_tables_and_no_trading_advice_words() -> None:
     markdown = render_markdown(
         TIMESTAMP,
-        [stock_record(), index_record()],
+        [stock_record(), index_record(), etf_record()],
         history_summary(),
         [],
     )
@@ -135,8 +184,10 @@ def test_render_markdown_contains_tables_and_no_trading_advice_words() -> None:
     assert "时间：2026-07-03 10:42:30" in markdown
     assert "## 当前个股行情" in markdown
     assert "## 当前指数行情" in markdown
+    assert "## 当前 ETF 行情" in markdown
     assert "协创数据" in markdown
     assert "创业板指" in markdown
+    assert "创业板ETF易方达" in markdown
     assert "## 最近 15 分钟客观统计" in markdown
     assert "15m" in markdown
     assert "## 给 ChatGPT 的分析请求" in markdown
@@ -149,26 +200,64 @@ def test_render_markdown_contains_tables_and_no_trading_advice_words() -> None:
 def test_render_markdown_uses_exact_current_and_summary_headers() -> None:
     markdown = render_markdown(
         TIMESTAMP,
-        [stock_record(), index_record()],
+        [stock_record(), index_record(), etf_record()],
         history_summary(),
         [],
     )
 
     stock_headers = table_header_after(markdown, "## 当前个股行情")
     index_headers = table_header_after(markdown, "## 当前指数行情")
+    etf_headers = table_header_after(markdown, "## 当前 ETF 行情")
     summary_headers = table_header_after(markdown, "## 最近 15 分钟客观统计")
 
-    assert ["代码", "名称", "最新价", "成交额"] == [
-        stock_headers[0],
-        stock_headers[1],
-        stock_headers[2],
-        stock_headers[8],
+    assert stock_headers == [
+        "代码",
+        "名称",
+        "最新价",
+        "涨跌幅",
+        "今开",
+        "最高",
+        "最低",
+        "昨收",
+        "成交量",
+        "成交额",
+        "振幅",
+        "量比",
+        "换手率",
+        "市盈率-动态",
+        "市净率",
+        "总市值",
+        "流通市值",
+        "涨速",
+        "5分钟涨跌",
+        "60日涨跌幅",
+        "年初至今涨跌幅",
+        "来源",
     ]
     assert ["代码", "名称", "最新价", "成交额"] == [
         index_headers[0],
         index_headers[1],
         index_headers[2],
         index_headers[7],
+    ]
+    assert index_headers[-1] == "来源"
+    assert etf_headers == [
+        "代码",
+        "名称",
+        "最新价",
+        "涨跌幅",
+        "今开",
+        "最高",
+        "最低",
+        "昨收",
+        "成交量",
+        "成交额",
+        "振幅",
+        "量比",
+        "换手率",
+        "总市值",
+        "流通市值",
+        "来源",
     ]
     assert summary_headers == [
         "标的",

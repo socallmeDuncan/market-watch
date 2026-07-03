@@ -25,9 +25,16 @@ SNAPSHOT_FIELDS = [
     "volume",
     "amount",
     "amplitude",
+    "volume_ratio",
     "turnover_rate",
+    "pe_dynamic",
+    "pb_ratio",
+    "total_market_value",
+    "circulating_market_value",
     "speed",
     "five_min_change",
+    "sixty_day_change_pct",
+    "year_to_date_change_pct",
     "source",
 ]
 
@@ -44,10 +51,37 @@ COMMON_FIELD_MAP = {
     "amplitude": "振幅",
 }
 
+ETF_FIELD_MAP = {
+    "price": "最新价",
+    "change_pct": "涨跌幅",
+    "change_amount": "涨跌额",
+    "open": "开盘价",
+    "high": "最高价",
+    "low": "最低价",
+    "prev_close": "昨收",
+    "volume": "成交量",
+    "amount": "成交额",
+    "amplitude": "振幅",
+}
+
 STOCK_ONLY_FIELD_MAP = {
+    "volume_ratio": "量比",
     "turnover_rate": "换手率",
+    "pe_dynamic": "市盈率-动态",
+    "pb_ratio": "市净率",
+    "total_market_value": "总市值",
+    "circulating_market_value": "流通市值",
     "speed": "涨速",
     "five_min_change": "5分钟涨跌",
+    "sixty_day_change_pct": "60日涨跌幅",
+    "year_to_date_change_pct": "年初至今涨跌幅",
+}
+
+ETF_OPTIONAL_FIELD_MAP = {
+    "volume_ratio": "量比",
+    "turnover_rate": "换手率",
+    "total_market_value": "总市值",
+    "circulating_market_value": "流通市值",
 }
 
 REQUIRED_NUMERIC_FIELDS = {"price"}
@@ -109,6 +143,25 @@ def normalize_index_frame(
     )
 
 
+def normalize_etf_frame(
+    frame: pd.DataFrame,
+    targets: list[dict[str, Any]],
+    *,
+    timestamp: str,
+    trade_date: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    return _normalize_frame(
+        frame,
+        targets,
+        asset_type="etf",
+        timestamp=timestamp,
+        trade_date=trade_date,
+        stage="normalize_etf",
+        optional_map=ETF_OPTIONAL_FIELD_MAP,
+        field_map=ETF_FIELD_MAP,
+    )
+
+
 def _normalize_frame(
     frame: pd.DataFrame,
     targets: list[dict[str, Any]],
@@ -118,6 +171,7 @@ def _normalize_frame(
     trade_date: str,
     stage: str,
     optional_map: dict[str, str],
+    field_map: dict[str, str] = COMMON_FIELD_MAP,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     if "代码" not in frame.columns:
         return [], [
@@ -163,6 +217,7 @@ def _normalize_frame(
             timestamp=timestamp,
             trade_date=trade_date,
             stage=stage,
+            field_map=field_map,
         )
         errors.extend(row_errors)
         if record is None:
@@ -183,6 +238,7 @@ def _build_record(
     timestamp: str,
     trade_date: str,
     stage: str,
+    field_map: dict[str, str],
 ) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
     code = str(target["code"])
     record: dict[str, Any] = {
@@ -192,10 +248,10 @@ def _build_record(
         "code": code,
         "name": str(target["name"]),
         "role": str(target["role"]),
-        "source": SOURCE_NAME,
+        "source": str(row.get("_market_watch_source") or SOURCE_NAME),
     }
 
-    for field, source_field in COMMON_FIELD_MAP.items():
+    for field, source_field in field_map.items():
         value = _parse_optional_number(row.get(source_field))
         if field in REQUIRED_NUMERIC_FIELDS and value is None:
             return None, [
@@ -210,9 +266,8 @@ def _build_record(
             ]
         record[field] = value
 
-    record["turnover_rate"] = None
-    record["speed"] = None
-    record["five_min_change"] = None
+    for field in STOCK_ONLY_FIELD_MAP:
+        record[field] = None
     return record, []
 
 
@@ -242,6 +297,12 @@ def _normalize_source_code(value: Any, *, target_code: str) -> str:
         return ""
     if isinstance(value, str):
         source_code = value.strip()
+        if (
+            len(source_code) > 2
+            and source_code[:2].lower() in {"sh", "sz", "bj"}
+            and source_code[2:].isdigit()
+        ):
+            source_code = source_code[2:]
     elif isinstance(value, float) and value.is_integer():
         source_code = str(int(value))
     else:

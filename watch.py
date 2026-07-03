@@ -5,12 +5,15 @@ from __future__ import annotations
 import argparse
 import time
 from datetime import datetime, time as clock_time
+from functools import partial
 from typing import Any, Callable, Sequence
 from zoneinfo import ZoneInfo
 
 from market_watch.config import ConfigError, load_config
 from market_watch.fetchers import (
     SourceDataError,
+    fetch_etf_intraday,
+    fetch_etfs,
     fetch_index_intraday,
     fetch_indices,
     fetch_stock_intraday,
@@ -23,6 +26,7 @@ from market_watch.intraday import (
 )
 from market_watch.normalize import (
     make_error,
+    normalize_etf_frame,
     normalize_index_frame,
     normalize_stock_frame,
 )
@@ -75,11 +79,15 @@ def collect_records(
     runtime = config["runtime"]
     retry_count = runtime["retry_count"]
     slow_threshold_seconds = runtime["request_timeout_seconds"]
+    source_provider = config["source"]["provider"]
 
     stock_targets = targets.get("stocks", [])
     if stock_targets:
         stock_frame, fetch_errors = _fetch_with_retry(
-            lambda: fetch_stocks([target["code"] for target in stock_targets]),
+            lambda: fetch_stocks(
+                [target["code"] for target in stock_targets],
+                source=source_provider,
+            ),
             stage="fetch_stocks",
             timestamp=timestamp,
             retry_count=retry_count,
@@ -102,6 +110,7 @@ def collect_records(
             lambda: fetch_indices(
                 [target["code"] for target in index_targets],
                 config["source"]["index_symbol"],
+                source=source_provider,
             ),
             stage="fetch_indices",
             timestamp=timestamp,
@@ -118,6 +127,29 @@ def collect_records(
             )
             records.extend(index_records)
             errors.extend(index_errors)
+
+    etf_targets = targets.get("etfs", [])
+    if etf_targets:
+        etf_frame, fetch_errors = _fetch_with_retry(
+            lambda: fetch_etfs(
+                [target["code"] for target in etf_targets],
+                source=source_provider,
+            ),
+            stage="fetch_etfs",
+            timestamp=timestamp,
+            retry_count=retry_count,
+            slow_threshold_seconds=slow_threshold_seconds,
+        )
+        errors.extend(fetch_errors)
+        if etf_frame is not None:
+            etf_records, etf_errors = normalize_etf_frame(
+                etf_frame,
+                etf_targets,
+                timestamp=timestamp,
+                trade_date=trade_date,
+            )
+            records.extend(etf_records)
+            errors.extend(etf_errors)
 
     return records, errors
 
@@ -136,12 +168,13 @@ def collect_intraday_records(
     runtime = config["runtime"]
     retry_count = runtime["retry_count"]
     slow_threshold_seconds = runtime["request_timeout_seconds"]
+    source_provider = config["source"]["provider"]
 
     for target in targets.get("stocks", []):
         target_records, target_errors = _normalize_intraday_target(
             target,
             asset_type="stock",
-            fetcher=fetch_stock_intraday,
+            fetcher=partial(fetch_stock_intraday, source=source_provider),
             stage="fetch_stock_intraday",
             timestamp=timestamp,
             trade_date=trade_date,
@@ -157,8 +190,24 @@ def collect_intraday_records(
         target_records, target_errors = _normalize_intraday_target(
             target,
             asset_type="index",
-            fetcher=fetch_index_intraday,
+            fetcher=partial(fetch_index_intraday, source=source_provider),
             stage="fetch_index_intraday",
+            timestamp=timestamp,
+            trade_date=trade_date,
+            start=start,
+            end=end,
+            retry_count=retry_count,
+            slow_threshold_seconds=slow_threshold_seconds,
+        )
+        records.extend(target_records)
+        errors.extend(target_errors)
+
+    for target in targets.get("etfs", []):
+        target_records, target_errors = _normalize_intraday_target(
+            target,
+            asset_type="etf",
+            fetcher=partial(fetch_etf_intraday, source=source_provider),
+            stage="fetch_etf_intraday",
             timestamp=timestamp,
             trade_date=trade_date,
             start=start,

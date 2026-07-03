@@ -17,6 +17,7 @@ def test_load_config_applies_defaults(tmp_path: Path, sample_config_dict: dict) 
     del sample_config_dict["runtime"]["market_timezone"]
     del sample_config_dict["runtime"]["request_timeout_seconds"]
     del sample_config_dict["runtime"]["retry_count"]
+    sample_config_dict["targets"].pop("etfs")
     path = write_yaml(tmp_path / "config.yaml", sample_config_dict)
 
     config = load_config(path)
@@ -24,6 +25,7 @@ def test_load_config_applies_defaults(tmp_path: Path, sample_config_dict: dict) 
     assert config["runtime"]["market_timezone"] == "Asia/Shanghai"
     assert config["runtime"]["request_timeout_seconds"] == 15
     assert config["runtime"]["retry_count"] == 1
+    assert config["targets"]["etfs"] == []
 
 
 def test_load_config_applies_intraday_storage_defaults(
@@ -50,6 +52,16 @@ def test_validate_config_rejects_duplicate_asset_code(sample_config_dict: dict) 
         validate_config(sample_config_dict)
 
 
+def test_validate_config_allows_same_code_in_different_asset_types(
+    sample_config_dict: dict,
+) -> None:
+    sample_config_dict["targets"]["etfs"].append(
+        {"code": "300857", "name": "测试ETF", "role": "context"}
+    )
+
+    validate_config(sample_config_dict)
+
+
 def test_validate_config_rejects_invalid_role(sample_config_dict: dict) -> None:
     sample_config_dict["targets"]["stocks"][0]["role"] = "leader"
 
@@ -60,6 +72,7 @@ def test_validate_config_rejects_invalid_role(sample_config_dict: dict) -> None:
 def test_validate_config_rejects_missing_targets(sample_config_dict: dict) -> None:
     sample_config_dict["targets"]["stocks"] = []
     sample_config_dict["targets"]["indices"] = []
+    sample_config_dict["targets"]["etfs"] = []
 
     with pytest.raises(ConfigError, match="At least one target"):
         validate_config(sample_config_dict)
@@ -139,3 +152,22 @@ def test_validate_config_rejects_missing_index_symbol(sample_config_dict: dict) 
 def test_load_config_rejects_missing_file(tmp_path: Path) -> None:
     with pytest.raises(ConfigError, match="Config file not found"):
         load_config(tmp_path / "missing.yaml")
+
+
+def test_validate_config_accepts_tencent_provider(sample_config_dict: dict) -> None:
+    sample_config_dict["source"]["provider"] = "tencent"
+
+    validate_config(sample_config_dict)
+
+
+def test_validate_config_rejects_unknown_provider(sample_config_dict: dict) -> None:
+    sample_config_dict["source"]["provider"] = "unknown_src"
+
+    with pytest.raises(ConfigError, match="provider must be"):
+        validate_config(sample_config_dict)
+
+
+def test_default_config_uses_tencent_provider() -> None:
+    from market_watch.config import DEFAULT_CONFIG
+
+    assert DEFAULT_CONFIG["source"]["provider"] == "tencent"

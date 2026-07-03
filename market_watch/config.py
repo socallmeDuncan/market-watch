@@ -11,7 +11,7 @@ import yaml
 
 VALID_ROLES = {"primary", "compare", "context"}
 DEFAULT_CONFIG: dict[str, Any] = {
-    "targets": {"stocks": [], "indices": []},
+    "targets": {"stocks": [], "indices": [], "etfs": []},
     "runtime": {
         "interval_seconds": 60,
         "market_hours_only": True,
@@ -29,7 +29,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "today_json": "outputs/today.json",
     },
     "source": {
-        "provider": "akshare",
+        "provider": "tencent",
         "stock_source": "eastmoney",
         "index_symbol": "沪深重要指数",
     },
@@ -66,11 +66,12 @@ def validate_config(config: dict[str, Any]) -> None:
     targets = _require_mapping(config, "targets")
     stocks = _require_list(targets, "stocks")
     indices = _require_list(targets, "indices")
-    if not stocks and not indices:
+    etfs = _require_list(targets, "etfs")
+    if not stocks and not indices and not etfs:
         raise ConfigError("At least one target must be configured")
 
     seen: set[tuple[str, str]] = set()
-    for asset_type, items in [("stock", stocks), ("index", indices)]:
+    for asset_type, items in [("stock", stocks), ("index", indices), ("etf", etfs)]:
         for item in items:
             if not isinstance(item, dict):
                 raise ConfigError(f"{asset_type} target must be a mapping")
@@ -107,8 +108,8 @@ def validate_config(config: dict[str, Any]) -> None:
 
     source = _require_mapping(config, "source")
     provider = _require_non_empty_string(source, "provider")
-    if provider != "akshare":
-        raise ConfigError("source.provider must be akshare")
+    if provider not in {"akshare", "tencent"}:
+        raise ConfigError("source.provider must be akshare or tencent")
     if indices:
         _require_non_empty_string(source, "index_symbol")
 
