@@ -369,9 +369,8 @@ def _parse_tencent_qt_response(text: str) -> dict[str, Any]:
         return {}
     payload = text.split("=", 1)[1].strip().rstrip(";").strip('"')
     parts = payload.split("~")
-    # 股票响应约 48 字段，指数/ETF 响应仅 33~34 字段（缺市值/市盈率等尾部字段）。
-    # 字段索引循环会自动跳过越界索引，故只需保证含日期/涨跌区段即可。
-    if len(parts) < 32:
+    # 真实腾讯响应约 88 字段。截断/异常响应通常远少于 50，用此阈值过滤垃圾。
+    if len(parts) < 50:
         return {}
     row: dict[str, Any] = {}
     for index, col in _TENCENT_QT_FIELD_INDEX.items():
