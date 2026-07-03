@@ -11,14 +11,21 @@ class SourceDataError(RuntimeError):
     """Raised when source data does not have the expected shape."""
 
 
-def fetch_stocks(codes: Iterable[str], provider: Any | None = None) -> pd.DataFrame:
-    source = provider if provider is not None else _import_akshare()
+def fetch_stocks(
+    codes: Iterable[str],
+    provider: Any | None = None,
+    *,
+    source: str | None = None,
+) -> pd.DataFrame:
+    if source == "tencent":
+        return _fetch_stocks_tencent(codes)
+    akshare_module = provider if provider is not None else _import_akshare()
     try:
-        frame = _with_source(source.stock_zh_a_spot_em(), "akshare_em")
+        frame = _with_source(akshare_module.stock_zh_a_spot_em(), "akshare_em")
         return _filter_by_codes(frame, codes)
     except Exception as primary_exc:
         try:
-            frame = _with_source(source.stock_zh_a_spot(), "akshare_sina_spot")
+            frame = _with_source(akshare_module.stock_zh_a_spot(), "akshare_sina_spot")
             return _filter_by_codes(frame, codes)
         except Exception as fallback_exc:
             raise RuntimeError(
@@ -28,17 +35,23 @@ def fetch_stocks(codes: Iterable[str], provider: Any | None = None) -> pd.DataFr
 
 
 def fetch_indices(
-    codes: Iterable[str], symbol: str, provider: Any | None = None
+    codes: Iterable[str],
+    symbol: str,
+    provider: Any | None = None,
+    *,
+    source: str | None = None,
 ) -> pd.DataFrame:
-    source = provider if provider is not None else _import_akshare()
+    if source == "tencent":
+        return _fetch_indices_tencent(codes)
+    akshare_module = provider if provider is not None else _import_akshare()
     requested_codes = [str(code) for code in codes]
     try:
-        frame = _with_source(source.stock_zh_index_spot_em(symbol=symbol), "akshare_em")
+        frame = _with_source(akshare_module.stock_zh_index_spot_em(symbol=symbol), "akshare_em")
         filtered = _filter_by_codes(frame, requested_codes)
     except Exception as primary_exc:
         try:
             frame = _with_source(
-                source.stock_zh_index_spot_sina(), "akshare_sina_index_spot"
+                akshare_module.stock_zh_index_spot_sina(), "akshare_sina_index_spot"
             )
             return _filter_by_codes(frame, requested_codes)
         except Exception as fallback_exc:
@@ -53,7 +66,7 @@ def fetch_indices(
 
     try:
         fallback_frame = _with_source(
-            source.stock_zh_index_spot_sina(), "akshare_sina_index_spot"
+            akshare_module.stock_zh_index_spot_sina(), "akshare_sina_index_spot"
         )
         fallback_filtered = _filter_by_codes(fallback_frame, missing_codes)
     except Exception:
@@ -65,9 +78,16 @@ def fetch_indices(
     )
 
 
-def fetch_etfs(codes: Iterable[str], provider: Any | None = None) -> pd.DataFrame:
-    source = provider if provider is not None else _import_akshare()
-    frame = _with_source(source.fund_etf_spot_em(), "akshare_em_etf_spot")
+def fetch_etfs(
+    codes: Iterable[str],
+    provider: Any | None = None,
+    *,
+    source: str | None = None,
+) -> pd.DataFrame:
+    if source == "tencent":
+        return _fetch_etfs_tencent(codes)
+    akshare_module = provider if provider is not None else _import_akshare()
+    frame = _with_source(akshare_module.fund_etf_spot_em(), "akshare_em_etf_spot")
     return _filter_by_codes(frame, codes)
 
 
@@ -78,10 +98,13 @@ def fetch_stock_intraday(
     end: str,
     *,
     provider: Any | None = None,
+    source: str | None = None,
 ) -> pd.DataFrame:
-    source = provider if provider is not None else _import_akshare()
+    if source == "tencent":
+        return _fetch_intraday_tencent(code, start, end, asset_type="stock")
+    akshare_module = provider if provider is not None else _import_akshare()
     try:
-        frame = source.stock_zh_a_hist_min_em(
+        frame = akshare_module.stock_zh_a_hist_min_em(
             symbol=str(code),
             period="1",
             adjust="",
@@ -91,7 +114,7 @@ def fetch_stock_intraday(
         return _with_source(frame, "akshare_em_intraday_1m")
     except Exception as primary_exc:
         try:
-            frame = source.stock_zh_a_minute(
+            frame = akshare_module.stock_zh_a_minute(
                 symbol=_stock_sina_symbol(code),
                 period="1",
                 adjust="",
@@ -110,10 +133,13 @@ def fetch_index_intraday(
     end: str,
     *,
     provider: Any | None = None,
+    source: str | None = None,
 ) -> pd.DataFrame:
-    source = provider if provider is not None else _import_akshare()
+    if source == "tencent":
+        return _fetch_intraday_tencent(code, start, end, asset_type="index")
+    akshare_module = provider if provider is not None else _import_akshare()
     try:
-        frame = source.index_zh_a_hist_min_em(
+        frame = akshare_module.index_zh_a_hist_min_em(
             symbol=str(code),
             period="1",
             start_date=start,
@@ -122,7 +148,7 @@ def fetch_index_intraday(
         return _with_source(frame, "akshare_em_intraday_1m")
     except Exception as primary_exc:
         try:
-            frame = source.stock_zh_a_minute(
+            frame = akshare_module.stock_zh_a_minute(
                 symbol=_index_sina_symbol(code),
                 period="1",
                 adjust="",
@@ -141,9 +167,12 @@ def fetch_etf_intraday(
     end: str,
     *,
     provider: Any | None = None,
+    source: str | None = None,
 ) -> pd.DataFrame:
-    source = provider if provider is not None else _import_akshare()
-    frame = source.fund_etf_hist_min_em(
+    if source == "tencent":
+        return _fetch_intraday_tencent(code, start, end, asset_type="etf")
+    akshare_module = provider if provider is not None else _import_akshare()
+    frame = akshare_module.fund_etf_hist_min_em(
         symbol=str(code),
         period="1",
         adjust="",
