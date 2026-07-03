@@ -663,3 +663,69 @@ def test_fetch_stocks_tencent_rejects_truncated_response(mock_requests):
     from market_watch.fetchers import _parse_tencent_qt_response
 
     assert _parse_tencent_qt_response('v_sz300857="51~协创数据";') == {}
+
+
+@patch("market_watch.fetchers.requests")
+def test_fetch_intraday_tencent_reorders_fields(mock_requests):
+    """腾讯 mkline=[时间,开,收,高,低,量,{},额] → 契约=[时间,开,高,低,收,量,额]."""
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {
+        "data": {
+            "sz300857": {
+                "m1": [
+                    ["202607030931", "294.50", "295.20", "296.00", "294.00",
+                     "1234", {}, "3651000"],
+                    ["202607030932", "295.20", "295.50", "295.80", "295.00",
+                     "2000", {}, "591000"],
+                ]
+            }
+        }
+    }
+    mock_requests.Session.return_value.get.return_value = mock_resp
+
+    result = fetch_stock_intraday(
+        "300857",
+        start="2026-07-03 09:30:00",
+        end="2026-07-03 15:00:00",
+        source="tencent",
+    )
+
+    assert len(result) == 2
+    row0 = result.iloc[0]
+    # 验证重排：开=294.50 高=296.00 低=294.00 收=295.20（不是腾讯原始顺序）
+    assert row0["开盘"] == 294.50
+    assert row0["最高"] == 296.00
+    assert row0["最低"] == 294.00
+    assert row0["收盘"] == 295.20
+    assert row0["成交量"] == 1234
+    assert row0["成交额"] == 3651000
+    assert row0["时间"] == pd.Timestamp("2026-07-03 09:31:00")
+    assert row0["_market_watch_source"] == "tencent_mkline_1m"
+
+
+@patch("market_watch.fetchers.requests")
+def test_fetch_intraday_tencent_filters_by_time_range(mock_requests):
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {
+        "data": {
+            "sz300857": {
+                "m1": [
+                    ["202607030929", "294.00", "294.00", "294.00", "294.00",
+                     "100", {}, "29400"],  # 早于 start，应过滤
+                    ["202607030931", "294.50", "295.20", "296.00", "294.00",
+                     "1234", {}, "3651000"],
+                ]
+            }
+        }
+    }
+    mock_requests.Session.return_value.get.return_value = mock_resp
+
+    result = fetch_stock_intraday(
+        "300857",
+        start="2026-07-03 09:30:00",
+        end="2026-07-03 15:00:00",
+        source="tencent",
+    )
+
+    assert len(result) == 1
+    assert result.iloc[0]["时间"] == pd.Timestamp("2026-07-03 09:31:00")

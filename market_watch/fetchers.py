@@ -471,3 +471,97 @@ def _sina_etfs_fallback(codes: list[str]) -> pd.DataFrame:
     akshare_module = _import_akshare()
     frame = _with_source(akshare_module.fund_etf_spot_em(), "sina_spot")
     return _filter_by_codes(frame, codes)
+
+
+TENCENT_MKLINE_URL = "https://ifzq.gtimg.cn/appstock/app/kline/mkline"
+
+# 腾讯 mkline 返回 8 元素: [时间, 开, 收, 高, 低, 量, {}, 额]
+# 契约要求: [时间, 开盘, 最高, 最低, 收盘, 成交量, 成交额]
+# 注意腾讯是"开收高低"，契约是"开高低收"，需重排。
+_TENCENT_MKLINE_INDEX = {
+    "时间": 0,
+    "开盘": 1,
+    "收盘": 2,
+    "最高": 3,
+    "最低": 4,
+    "成交量": 5,
+    "成交额": 7,  # 索引6是空{}，跳过
+}
+
+
+def _fetch_intraday_tencent(
+    code: str, start: str, end: str, *, asset_type: str
+) -> pd.DataFrame:
+    try:
+        return _tencent_mkline(code, start, end, asset_type=asset_type)
+    except Exception as primary_exc:
+        try:
+            return _sina_intraday_fallback(code, start, end, asset_type=asset_type)
+        except Exception as fallback_exc:
+            raise RuntimeError(
+                f"Tencent intraday fetch failed: {primary_exc}; "
+                f"Sina intraday fetch failed: {fallback_exc}"
+            ) from fallback_exc
+
+
+def _tencent_mkline(
+    code: str, start: str, end: str, *, asset_type: str
+) -> pd.DataFrame:
+    prefix = _tencent_prefix(code, asset_type)
+    session = _tencent_qt_session()
+    response = session.get(
+        TENCENT_MKLINE_URL,
+        params={"param": f"{prefix}{code},m1,,320"},
+        headers=TENCENT_QT_HEADERS,
+        timeout=15,
+    )
+    payload = response.json()
+    node = payload.get("data", {}).get(f"{prefix}{code}", {})
+    klines = node.get("m1", [])
+    if not klines:
+        raise SourceDataError(f"Tencent mkline returned no data for {code}")
+
+    rows: list[dict[str, Any]] = []
+    for kline in klines:
+        if len(kline) < 8:
+            continue
+        time_str = str(kline[_TENCENT_MKLINE_INDEX["时间"]])
+        parsed_time = pd.to_datetime(time_str, format="%Y%m%d%H%M", errors="coerce")
+        row = {
+            "时间": parsed_time,
+            "开盘": _to_number(kline[_TENCENT_MKLINE_INDEX["开盘"]]),
+            "最高": _to_number(kline[_TENCENT_MKLINE_INDEX["最高"]]),
+            "最低": _to_number(kline[_TENCENT_MKLINE_INDEX["最低"]]),
+            "收盘": _to_number(kline[_TENCENT_MKLINE_INDEX["收盘"]]),
+            "成交量": _to_number(kline[_TENCENT_MKLINE_INDEX["成交量"]]),
+            "成交额": _to_number(kline[_TENCENT_MKLINE_INDEX["成交额"]]),
+        }
+        rows.append(row)
+
+    frame = pd.DataFrame(rows)
+    start_time = pd.to_datetime(start)
+    end_time = pd.to_datetime(end)
+    frame = frame[
+        frame["时间"].notna()
+        & (frame["时间"] >= start_time)
+        & (frame["时间"] <= end_time)
+    ].copy()
+    frame = _with_source(frame, "tencent_mkline_1m")
+    return frame
+
+
+def _sina_intraday_fallback(
+    code: str, start: str, end: str, *, asset_type: str
+) -> pd.DataFrame:
+    """Fallback to akshare Sina minute data."""
+    akshare_module = _import_akshare()
+    if asset_type == "index":
+        sina_symbol = _index_sina_symbol(code)
+    else:
+        sina_symbol = _stock_sina_symbol(code)
+    frame = akshare_module.stock_zh_a_minute(
+        symbol=sina_symbol,
+        period="1",
+        adjust="",
+    )
+    return _convert_sina_minute_frame(frame, start=start, end=end)
