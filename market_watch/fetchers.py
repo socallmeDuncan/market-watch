@@ -468,8 +468,13 @@ def _sina_indices_fallback(codes: list[str]) -> pd.DataFrame:
 
 
 def _sina_etfs_fallback(codes: list[str]) -> pd.DataFrame:
+    """ETF 兜底：akshare 无纯新浪 ETF spot 接口，沿用东财 fund_etf_spot_em。
+
+    注意 source 标记为 akshare_em_etf_spot（反映真实来源），不写 sina_spot，
+    避免数据来源造假（spec 6.3 硬约束）。
+    """
     akshare_module = _import_akshare()
-    frame = _with_source(akshare_module.fund_etf_spot_em(), "sina_spot")
+    frame = _with_source(akshare_module.fund_etf_spot_em(), "akshare_em_etf_spot")
     return _filter_by_codes(frame, codes)
 
 

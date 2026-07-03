@@ -651,18 +651,45 @@ def test_fetch_etfs_tencent_uses_sh_prefix_for_hushi_etf(mock_requests):
     assert result.iloc[0]["最新价"] == 1.331
 
 
-@patch("market_watch.fetchers.requests")
-def test_fetch_stocks_tencent_rejects_truncated_response(mock_requests):
-    """截断的异常响应(<50字段)应被拒绝，触发 fallback 而非返回脏数据."""
-    mock_resp = MagicMock()
-    mock_resp.text = 'v_sz300857="51~协创数据~300857~300.41";'  # 仅4字段
-    # 主源腾讯返回截断响应，第一次调用失败；fallback 也需 mock 失败以验证 RuntimeError
-    mock_requests.Session.return_value.get.return_value = mock_resp
-
-    # 直接测解析函数：截断响应应返回空 dict
+def test_parse_tencent_qt_rejects_truncated_response():
+    """截断的异常响应(<50字段)应被解析为空 dict，触发上游 fallback 而非返回脏数据."""
     from market_watch.fetchers import _parse_tencent_qt_response
 
     assert _parse_tencent_qt_response('v_sz300857="51~协创数据";') == {}
+
+
+@patch("market_watch.fetchers._tencent_realtime_multi")
+@patch("market_watch.fetchers._sina_stocks_fallback")
+def test_fetch_stocks_tencent_falls_back_to_sina(mock_sina, mock_tencent):
+    """腾讯主源失败时，应切到新浪备源（spec 10.1 fallback 链测试）."""
+    from market_watch.fetchers import _fetch_stocks_tencent
+
+    mock_tencent.side_effect = RuntimeError("tencent offline")
+    mock_sina.return_value = pd.DataFrame([{"代码": "300857", "最新价": 300.41}])
+
+    result = _fetch_stocks_tencent(["300857"])
+
+    mock_tencent.assert_called_once()
+    mock_sina.assert_called_once_with(["300857"])
+    assert len(result) == 1
+
+
+@patch("market_watch.fetchers._tencent_realtime_multi")
+@patch("market_watch.fetchers._sina_etfs_fallback")
+def test_fetch_etfs_tencent_falls_back_and_tags_em_source(mock_sina, mock_tencent):
+    """ETF 兜底走东财 fund_etf_spot_em，source 必须标 akshare_em_etf_spot 而非 sina_spot."""
+    from market_watch.fetchers import _fetch_etfs_tencent
+
+    mock_tencent.side_effect = RuntimeError("tencent offline")
+    # 模拟 _sina_etfs_fallback 内部 _with_source 打的标记
+    mock_sina.return_value = pd.DataFrame(
+        [{"代码": "512480", "最新价": 1.331, "_market_watch_source": "akshare_em_etf_spot"}]
+    )
+
+    result = _fetch_etfs_tencent(["512480"])
+
+    mock_sina.assert_called_once_with(["512480"])
+    assert result.iloc[0]["_market_watch_source"] == "akshare_em_etf_spot"
 
 
 @patch("market_watch.fetchers.requests")
