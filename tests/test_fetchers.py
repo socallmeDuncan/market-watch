@@ -6,6 +6,7 @@ import pytest
 from market_watch.fetchers import (
     SourceDataError,
     _filter_by_codes,
+    _tencent_prefix,
     fetch_index_intraday,
     fetch_indices,
     fetch_etf_intraday,
@@ -507,3 +508,31 @@ def test_fetch_etf_intraday_calls_akshare_with_one_minute_parameters() -> None:
     ]
     assert result.iloc[0]["收盘"] == 4.037
     assert result.iloc[0]["_market_watch_source"] == "akshare_em_etf_intraday_1m"
+
+
+def test_tencent_prefix_stock_chuangye() -> None:
+    assert _tencent_prefix("300857", "stock") == "sz"
+
+
+def test_tencent_prefix_stock_hushi() -> None:
+    assert _tencent_prefix("600000", "stock") == "sh"
+
+
+def test_tencent_prefix_index_shanghai_series() -> None:
+    assert _tencent_prefix("000001", "index") == "sh"
+    assert _tencent_prefix("000300", "index") == "sh"
+    assert _tencent_prefix("000688", "index") == "sh"
+
+
+def test_tencent_prefix_index_shenzhen_series() -> None:
+    assert _tencent_prefix("399006", "index") == "sz"
+    assert _tencent_prefix("399001", "index") == "sz"
+
+
+def test_tencent_prefix_etf_hushi() -> None:
+    assert _tencent_prefix("512480", "etf") == "sh"
+    assert _tencent_prefix("588000", "etf") == "sh"
+
+
+def test_tencent_prefix_etf_shenshi() -> None:
+    assert _tencent_prefix("159915", "etf") == "sz"

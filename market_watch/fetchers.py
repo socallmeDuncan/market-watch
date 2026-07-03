@@ -289,3 +289,21 @@ def _import_akshare() -> Any:
     import akshare
 
     return akshare
+
+
+def _tencent_prefix(code: str, asset_type: str) -> str:
+    """Return the Tencent exchange prefix ("sh" or "sz") for a given code.
+
+    asset_type ∈ {"stock", "index", "etf"}. See spec section 7.1:
+      index: 399开头->sz, 其余(000/000300/000688等)->sh
+      stock/etf: 5/6/9开头->sh, 其余(0/1/3开头)->sz
+    """
+    normalized = str(code).strip()
+    if asset_type == "index":
+        if normalized.startswith("399"):
+            return "sz"
+        return "sh"
+    # stock and etf share the same prefix rule
+    if normalized.startswith(("5", "6", "9")):
+        return "sh"
+    return "sz"
